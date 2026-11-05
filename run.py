@@ -1,0 +1,244 @@
+#!/usr/bin/env python3
+"""
+run.py - Main entry point for the dodoodle 3D Hand Air-Drawing application.
+"""
+
+import os
+import sys
+import time
+import argparse
+import numpy as np
+import cv2
+
+# Set MPLCONFIGDIR early
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/mpl")
+
+from src.hand_detector import HandDetector, generate_simulated_hand_pose
+from src.pinch_tracker import PinchTracker, PinchState
+from src.canvas import AirCanvas, CanvasMode
+from src.ui import UIOverlay
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="dodoodle - 3D Hand Air Canvas")
+    parser.add_argument("--camera", type=int, default=0, help="Webcam device index (default: 0)")
+    parser.add_argument("--width", type=int, default=1280, help="Camera width (default: 1280)")
+    parser.add_argument("--height", type=int, default=720, help="Camera height (default: 720)")
+    parser.add_argument("--model", type=str, default="models/hand_landmarker.task", help="Path to hand landmarker model")
+    parser.add_argument("--no-flip", action="store_true", help="Do not horizontally mirror the camera feed")
+    parser.add_argument("--min-cutoff", type=float, default=1.0, help="1€ filter min cutoff Hz (default: 1.0)")
+    parser.add_argument("--beta", type=float, default=0.015, help="1€ filter beta coefficient (default: 0.015)")
+    parser.add_argument("--synthetic", action="store_true", help="Run with synthetic test frames (for headless/testing)")
+    parser.add_argument("--demo", action="store_true", help="Run animated 3D hand drawing simulation demo")
+    parser.add_argument("--save-frames", type=int, default=0, help="Save N frames and exit (for headless test/verification)")
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    print("=" * 60)
+    print(" dodoodle - 3D Hand Tracking & Air-Drawing Studio")
+    print("=" * 60)
+    print(f"Loading Hand Landmarker model: {args.model}")
+
+    try:
+        detector = HandDetector(
+            model_path=args.model,
+            num_hands=1,
+            enable_filter=True
+        )
+    except Exception as e:
+        print(f"Error initializing hand detector: {e}")
+        sys.exit(1)
+
+    tracker = PinchTracker(
+        min_cutoff=args.min_cutoff,
+        beta=args.beta
+    )
+    canvas = AirCanvas(width=args.width, height=args.height)
+    ui = UIOverlay(width=args.width, height=args.height)
+
+    # Initialize video capture
+    cap = None
+    if not args.synthetic and not args.demo:
+        cap = cv2.VideoCapture(args.camera)
+        if not cap.isOpened():
+            print(f"Warning: Camera {args.camera} could not be opened. Falling back to synthetic mode.")
+            args.synthetic = True
+        else:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
+            actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            if actual_w > 0 and actual_h > 0:
+                canvas.width = actual_w
+                canvas.height = actual_h
+                ui.width = actual_w
+                ui.height = actual_h
+                ui._init_toolbar()
+
+    window_name = "dodoodle - 3D Hand Air Canvas"
+    if not (args.synthetic or args.demo) or args.save_frames == 0:
+        cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+
+    prev_time = time.time()
+    fps = 30.0
+    frame_count = 0
+    saved_count = 0
+
+    print("\nControls:")
+    print("  * Pinch Thumb + Index to Draw")
+    print("  * Separate fingers to Stop Drawing")
+    print("  * Change hand 3D angle (Pitch, Yaw, Roll) seamlessly")
+    print("  * Key '1'-'7': Colors | 'E': Eraser | 'C': Clear | 'Z': Undo")
+    print("  * Key 'T': Toggle Mode | 'K': Toggle Skeleton | 'S': Save | 'Q': Quit")
+    print("\nReady! Starting tracking loop...\n")
+
+    try:
+        while True:
+            t_now = time.time()
+            dt = t_now - prev_time
+            prev_time = t_now
+            if dt > 0:
+                fps = 0.9 * fps + 0.1 * (1.0 / dt)
+
+            # Capture or synthesize frame
+            if not args.synthetic and not args.demo and cap is not None:
+                ret, frame = cap.read()
+                if not ret:
+                    print("Camera read failed. Exiting.")
+                    break
+                if not args.no_flip:
+                    frame = cv2.flip(frame, 1)
+            else:
+                # Generate clean animated synthetic test frame
+                frame = np.full((canvas.height, canvas.width, 3), (30, 30, 35), dtype=np.uint8)
+                if args.demo:
+                    cv2.putText(frame, "3D HAND SIMULATION DEMO (Continuous XYZ Rotation)", (40, 75),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 240, 255), 2)
+                else:
+                    cv2.putText(frame, "Synthetic Test Feed (Camera Inactive)", (40, canvas.height // 2),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (120, 120, 140), 2)
+
+            # Ensure proper frame dimensions match canvas
+            fh, fw, _ = frame.shape
+            if (fw, fh) != (canvas.width, canvas.height):
+                canvas.width, canvas.height = fw, fh
+                ui.width, ui.height = fw, fh
+
+            # Detect hands in 3D
+            if args.demo:
+                pose = generate_simulated_hand_pose(t_now, canvas.width, canvas.height)
+                poses = [pose]
+            else:
+                poses = detector.process(frame)
+                pose = poses[0] if poses else None
+
+            # Track 3D pinch
+            state, cursor_xy, progress = tracker.update(pose, timestamp=t_now)
+
+            # Process virtual toolbar button hits
+            toolbar_clicked = False
+            if cursor_xy is not None:
+                toolbar_clicked = ui.check_toolbar_interaction(cursor_xy, state, canvas)
+
+            # Handle drawing stroke lifecycle if not interacting with top toolbar
+            if not toolbar_clicked and cursor_xy is not None:
+                if state == PinchState.PINCH_START:
+                    canvas.start_stroke(cursor_xy)
+                elif state == PinchState.PINCHING:
+                    canvas.continue_stroke(cursor_xy)
+                elif state == PinchState.PINCH_STOP:
+                    canvas.end_stroke()
+            elif state == PinchState.PINCH_STOP or cursor_xy is None:
+                canvas.end_stroke()
+
+            # Render canvas composite
+            display_frame = canvas.render(frame)
+
+            # Draw HUD Overlays
+            if ui.show_hud:
+                ui.draw_toolbar(display_frame, canvas)
+                ui.draw_bottom_bar(display_frame, fps, canvas)
+
+                if pose is not None:
+                    ui.draw_skeleton(display_frame, pose)
+                    ui.draw_3d_orientation_widget(display_frame, pose)
+                    ui.draw_pinch_meter(display_frame, tracker, pose)
+
+                ui.draw_cursor(display_frame, cursor_xy, tracker, canvas, pose)
+                ui.draw_help_dialog(display_frame)
+
+            # Display window or save frames
+            if args.save_frames > 0:
+                out_path = f"test_frame_{saved_count:02d}.png"
+                cv2.imwrite(out_path, display_frame)
+                saved_count += 1
+                if saved_count >= args.save_frames:
+                    print(f"Saved {saved_count} test frames. Exiting headless run.")
+                    break
+
+            try:
+                cv2.imshow(window_name, display_frame)
+            except Exception:
+                # Running headless without display server
+                pass
+
+            # Handle Keyboard Input
+            key = cv2.waitKey(1) & 0xFF
+            if key in [27, ord('q'), ord('Q')]:  # ESC or Q
+                print("Quit key pressed.")
+                break
+            elif key in [ord('c'), ord('C')]:
+                canvas.clear()
+            elif key in [ord('z'), ord('Z')]:
+                canvas.undo()
+            elif key in [ord('e'), ord('E')]:
+                canvas.set_color("eraser")
+            elif key in [ord('t'), ord('T')]:
+                canvas.toggle_mode()
+            elif key in [ord('k'), ord('K')]:
+                ui.show_skeleton = not ui.show_skeleton
+            elif key in [ord('h'), ord('H')]:
+                ui.show_help = not ui.show_help
+            elif key in [ord('+'), ord('=')]:
+                canvas.set_brush_size(canvas.brush_size + 2)
+            elif key in [ord('-'), ord('_')]:
+                canvas.set_brush_size(canvas.brush_size - 2)
+            elif key in [ord('s'), ord('S')]:
+                saved_file = canvas.save()
+                print(f"Artwork saved to: {saved_file}")
+            elif key == ord('1'):
+                canvas.set_color("cyan")
+            elif key == ord('2'):
+                canvas.set_color("green")
+            elif key == ord('3'):
+                canvas.set_color("yellow")
+            elif key == ord('4'):
+                canvas.set_color("magenta")
+            elif key == ord('5'):
+                canvas.set_color("red")
+            elif key == ord('6'):
+                canvas.set_color("blue")
+            elif key == ord('7'):
+                canvas.set_color("white")
+
+            frame_count += 1
+
+    except KeyboardInterrupt:
+        print("\nInterrupted by user.")
+    finally:
+        if cap is not None:
+            cap.release()
+        detector.close()
+        try:
+            cv2.destroyAllWindows()
+        except Exception:
+            pass
+        print("Application finished cleanly.")
+        os._exit(0)
+
+
+if __name__ == "__main__":
+    main()
