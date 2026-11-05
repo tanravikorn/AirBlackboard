@@ -34,6 +34,47 @@ def parse_args():
     return parser.parse_args()
 
 
+def init_camera(camera_idx: int = 0, width: int = 1280, height: int = 720):
+    """
+    Open webcam using AVFoundation on macOS or standard backend on Linux/Windows.
+    Scans indices 0, 1, 2, 3 if requested index is unavailable.
+    """
+    backend = cv2.CAP_AVFOUNDATION if sys.platform == "darwin" else cv2.CAP_ANY
+    candidate_indices = [camera_idx] + [i for i in range(4) if i != camera_idx]
+
+    for idx in candidate_indices:
+        try:
+            cap = cv2.VideoCapture(idx, backend)
+            if cap.isOpened():
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
+                # Read warm-up frames to ensure sensor & exposure are ready
+                valid = False
+                frame = None
+                for _ in range(5):
+                    ret, test_frame = cap.read()
+                    if ret and test_frame is not None and test_frame.size > 0:
+                        valid = True
+                        frame = test_frame
+                        break
+                    time.sleep(0.05)
+
+                if valid:
+                    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    if actual_w <= 0 or actual_h <= 0 and frame is not None:
+                        actual_h, actual_w, _ = frame.shape
+                    print(f"Camera successfully initialized on index {idx} ({actual_w}x{actual_h})!")
+                    return cap, idx, actual_w, actual_h
+                else:
+                    cap.release()
+        except Exception:
+            pass
+
+    return None, -1, 0, 0
+
+
 def main():
     args = parse_args()
 
@@ -61,22 +102,26 @@ def main():
 
     # Initialize video capture
     cap = None
+    camera_online = False
+    consecutive_cam_failures = 0
+
     if not args.synthetic and not args.demo:
-        cap = cv2.VideoCapture(args.camera)
-        if not cap.isOpened():
-            print(f"Warning: Camera {args.camera} could not be opened. Falling back to synthetic mode.")
-            args.synthetic = True
+        print(f"Searching for camera (requested index: {args.camera})...")
+        cap, actual_idx, actual_w, actual_h = init_camera(args.camera, args.width, args.height)
+        if cap is not None:
+            camera_online = True
+            canvas.width = actual_w
+            canvas.height = actual_h
+            ui.width = actual_w
+            ui.height = actual_h
+            ui._init_toolbar()
         else:
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
-            actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            if actual_w > 0 and actual_h > 0:
-                canvas.width = actual_w
-                canvas.height = actual_h
-                ui.width = actual_w
-                ui.height = actual_h
-                ui._init_toolbar()
+            print("\n" + "!" * 60)
+            print("WARNING: Could not connect to camera.")
+            print("If running on macOS, ensure Camera permissions are granted:")
+            print("  System Settings -> Privacy & Security -> Camera -> Enable for your Terminal/IDE.")
+            print("You can press 'R' inside the app window at any time to reconnect.")
+            print("!" * 60 + "\n")
 
     window_name = "dodoodle - 3D Hand Air Canvas"
     if not (args.synthetic or args.demo) or args.save_frames == 0:
@@ -92,7 +137,7 @@ def main():
     print("  * Separate fingers to Stop Drawing")
     print("  * Change hand 3D angle (Pitch, Yaw, Roll) seamlessly")
     print("  * Key '1'-'7': Colors | 'E': Eraser | 'C': Clear | 'Z': Undo")
-    print("  * Key 'T': Toggle Mode | 'K': Toggle Skeleton | 'S': Save | 'Q': Quit")
+    print("  * Key 'T': Toggle Mode | 'R': Reconnect Camera | 'K': Skeleton | 'Q': Quit")
     print("\nReady! Starting tracking loop...\n")
 
     try:
@@ -104,22 +149,23 @@ def main():
                 fps = 0.9 * fps + 0.1 * (1.0 / dt)
 
             # Capture or synthesize frame
-            if not args.synthetic and not args.demo and cap is not None:
+            if camera_online and cap is not None and not args.demo and not args.synthetic:
                 ret, frame = cap.read()
-                if not ret:
-                    print("Camera read failed. Exiting.")
-                    break
+                if not ret or frame is None or frame.size == 0:
+                    consecutive_cam_failures += 1
+                    if consecutive_cam_failures > 20:
+                        camera_online = False
+                        print("Camera feed lost. Press 'R' to reconnect.")
+                    continue
+                consecutive_cam_failures = 0
                 if not args.no_flip:
                     frame = cv2.flip(frame, 1)
             else:
-                # Generate clean animated synthetic test frame
+                # Generate clean synthetic background
                 frame = np.full((canvas.height, canvas.width, 3), (30, 30, 35), dtype=np.uint8)
                 if args.demo:
                     cv2.putText(frame, "3D HAND SIMULATION DEMO (Continuous XYZ Rotation)", (40, 75),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 240, 255), 2)
-                else:
-                    cv2.putText(frame, "Synthetic Test Feed (Camera Inactive)", (40, canvas.height // 2),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (120, 120, 140), 2)
 
             # Ensure proper frame dimensions match canvas
             fh, fw, _ = frame.shape
@@ -162,6 +208,9 @@ def main():
                 ui.draw_toolbar(display_frame, canvas)
                 ui.draw_bottom_bar(display_frame, fps, canvas)
 
+                if not camera_online and not args.demo and not args.synthetic:
+                    ui.draw_camera_error_card(display_frame, "Webcam device offline or permission required")
+
                 if pose is not None:
                     ui.draw_skeleton(display_frame, pose)
                     ui.draw_3d_orientation_widget(display_frame, pose)
@@ -190,6 +239,22 @@ def main():
             if key in [27, ord('q'), ord('Q')]:  # ESC or Q
                 print("Quit key pressed.")
                 break
+            elif key in [ord('r'), ord('R')]:
+                print("Retrying camera connection...")
+                if cap is not None:
+                    cap.release()
+                cap, actual_idx, actual_w, actual_h = init_camera(args.camera, args.width, args.height)
+                if cap is not None:
+                    camera_online = True
+                    consecutive_cam_failures = 0
+                    canvas.width = actual_w
+                    canvas.height = actual_h
+                    ui.width = actual_w
+                    ui.height = actual_h
+                    ui._init_toolbar()
+                    print(f"Camera reconnected on index {actual_idx} ({actual_w}x{actual_h})!")
+                else:
+                    print("Camera connection retry failed. Check permissions.")
             elif key in [ord('c'), ord('C')]:
                 canvas.clear()
             elif key in [ord('z'), ord('Z')]:

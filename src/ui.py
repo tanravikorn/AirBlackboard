@@ -374,10 +374,47 @@ class UIOverlay:
         cv2.putText(frame, mode_text, (240, y1 + 21), cv2.FONT_HERSHEY_SIMPLEX, 0.46, (100, 220, 255), 1)
 
         # Key shortcuts guide
-        shortcuts = "[Pinch] Draw | [C] Clear | [Z] Undo | [E] Eraser | [T] Mode | [S] Save | [H] Help | [Q] Quit"
+        shortcuts = "[Pinch] Draw | [C] Clear | [Z] Undo | [E] Eraser | [T] Mode | [R] Camera | [H] Help | [Q] Quit"
         text_size = cv2.getTextSize(shortcuts, cv2.FONT_HERSHEY_SIMPLEX, 0.42, 1)[0]
         cv2.putText(frame, shortcuts, (self.width - text_size[0] - 14, y1 + 21),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.42, (170, 170, 180), 1)
+
+    def draw_camera_error_card(self, frame: np.ndarray, message: str = "Webcam not detected or unauthorized"):
+        """Draw prominent troubleshooting card when camera is inaccessible."""
+        cx, cy = self.width // 2, self.height // 2
+        w, h = 540, 240
+        x1, y1 = cx - w // 2, cy - h // 2
+        x2, y2 = cx + w // 2, cy + h // 2
+
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (20, 20, 30), -1)
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (50, 120, 240), 2)
+        cv2.addWeighted(overlay, 0.88, frame, 0.12, 0, frame)
+
+        lines = [
+            "! WEBCAM NOT DETECTED / ACCESS NEEDED",
+            "",
+            f"Status: {message}",
+            "",
+            "TO ENABLE ON MACOS:",
+            "  1. Open System Settings -> Privacy & Security -> Camera",
+            "  2. Enable Camera permission for Terminal / Python / Your IDE",
+            "  3. Press 'R' on your keyboard to retry connecting",
+            "  4. Or run: python3 run.py --demo (to test without camera)"
+        ]
+
+        ty = y1 + 32
+        for line in lines:
+            if line.startswith("!"):
+                color = (0, 140, 255)
+            elif line.startswith("TO ENABLE"):
+                color = (0, 240, 255)
+            elif line.startswith("  3. Press"):
+                color = (50, 255, 100)
+            else:
+                color = (220, 220, 220)
+            cv2.putText(frame, line, (x1 + 24, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.44, color, 1)
+            ty += 22
 
     def draw_help_dialog(self, frame: np.ndarray):
         """Draw interactive keyboard help modal."""
@@ -385,7 +422,7 @@ class UIOverlay:
             return
 
         cx, cy = self.width // 2, self.height // 2
-        w, h = 500, 320
+        w, h = 520, 340
         x1, y1 = cx - w // 2, cy - h // 2
         x2, y2 = cx + w // 2, cy + h // 2
 
@@ -409,6 +446,7 @@ class UIOverlay:
             "  * Z: Undo last stroke",
             "  * C: Clear canvas",
             "  * T: Toggle canvas mode (Overlay / Split / Full)",
+            "  * R: Reconnect / Re-detect camera",
             "  * K: Toggle 3D Skeleton overlay",
             "  * S: Save drawing to PNG",
             "  * H: Toggle this help screen",
