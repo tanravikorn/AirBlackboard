@@ -96,24 +96,26 @@ python3 run.py --demo
 ### Hand Gestures
 | Gesture | Action |
 | :--- | :--- |
-| **Pinch (Thumb + Index)** | Start drawing continuous stroke (Pen Down) |
-| **Separate Fingers (Untouch)** | Stop drawing / move cursor freely (Hover / Pen Up) |
+| **Pinch Thumb + Index** | **Pen Down / Draw line** (in active color) |
+| **Pinch Thumb + Middle** | **Instant Eraser Gesture!** (erase without switching tools) |
+| **Separate Fingers (Untouch)** | **Stop drawing / Pen Up** (move cursor freely) |
 | **Rotate Hand in 3D (XYZ)** | Fully supported! Drawing remains steady at any angle |
-| **Air-Tap / Hover on Toolbar** | Select tool or color without touching keyboard |
+| **Air-Tap / Hover on Toolbar** | Select tool, color, or eraser touchlessly |
 
 ### Keyboard Shortcuts
 | Key | Action |
 | :---: | :--- |
-| **1 – 7** | Select color (Cyan, Green, Yellow, Magenta, Red, Blue, White) |
-| **E** | Toggle Eraser mode |
-| **+ / -** | Increase / decrease brush thickness |
-| **Z** | Undo last stroke |
-| **C** | Clear entire canvas |
-| **T** | Toggle Canvas Mode (`OVERLAY` $\leftrightarrow$ `SPLIT` $\leftrightarrow$ `FULL_CANVAS`) |
-| **K** | Toggle 3D hand skeleton overlay |
-| **S** | Save drawing to PNG file |
-| **H** | Toggle on-screen keyboard help modal |
-| **Q / ESC** | Exit application |
+| **`E`** | **Toggle Eraser $\leftrightarrow$ Pen** |
+| **`1` – `7`** | Select color (Cyan, Green, Yellow, Magenta, Red, Blue, White) |
+| **`+` / `-`** | Increase / decrease brush & eraser thickness |
+| **`Z`** | Undo last stroke |
+| **`C`** | Clear entire canvas |
+| **`T`** | Toggle Canvas Mode (`OVERLAY` $\leftrightarrow$ `SPLIT` $\leftrightarrow$ `FULL_CANVAS`) |
+| **`R`** | Reconnect / re-detect webcam |
+| **`K`** | Toggle 3D hand skeleton overlay |
+| **`S`** | Save drawing to PNG file |
+| **`H`** | Toggle on-screen keyboard help modal |
+| **`Q` / `ESC`** | Exit application |
 
 ---
 

@@ -226,12 +226,38 @@ def test_air_canvas_drawing_and_undo():
     canvas.clear()
     assert len(canvas.strokes) == 0
 
+    # Eraser toggle
+    assert canvas.is_eraser is False
+    canvas.toggle_eraser()
+    assert canvas.is_eraser is True
+    canvas.toggle_eraser()
+    assert canvas.is_eraser is False
+
     # Test rendering in all canvas modes
     dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
     for mode in [CanvasMode.OVERLAY, CanvasMode.SPLIT, CanvasMode.FULL_CANVAS]:
         canvas.mode = mode
         out = canvas.render(dummy_frame)
         assert out.shape == dummy_frame.shape
+
+
+def test_gesture_eraser_pinch():
+    """Verify Thumb + Middle finger pinch triggers eraser gesture."""
+    tracker = PinchTracker(pinch_enter_distance_m=0.030, pinch_exit_distance_m=0.042)
+
+    # Pose where Thumb and Middle tip are touching (1.8cm apart), while Index is open (7cm apart)
+    pose = create_synthetic_hand_pose(
+        thumb_tip=(-0.01, 0.12, 0.0),
+        index_tip=(0.06, 0.12, 0.0)
+    )
+    # Set middle tip close to thumb
+    pose.middle_tip_3d = np.array([0.005, 0.12, 0.0])
+    pose.middle_tip_2d = np.array([305.0, 305.0])
+
+    state, cursor, prog = tracker.update(pose, timestamp=1.0)
+    assert tracker.is_pinched is True
+    assert tracker.is_eraser_gesture is True
+    assert state == PinchState.PINCH_START
 
 
 def test_ui_overlay_toolbar_interaction():

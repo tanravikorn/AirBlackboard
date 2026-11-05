@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import argparse
+import threading
 import numpy as np
 import cv2
 
@@ -30,45 +31,87 @@ def parse_args():
     parser.add_argument("--beta", type=float, default=0.015, help="1€ filter beta coefficient (default: 0.015)")
     parser.add_argument("--synthetic", action="store_true", help="Run with synthetic test frames (for headless/testing)")
     parser.add_argument("--demo", action="store_true", help="Run animated 3D hand drawing simulation demo")
+    parser.add_argument("--fps", type=float, default=60.0, help="Target framerate (default: 60.0)")
     parser.add_argument("--save-frames", type=int, default=0, help="Save N frames and exit (for headless test/verification)")
     return parser.parse_args()
 
 
-def init_camera(camera_idx: int = 0, width: int = 1280, height: int = 720):
+class ThreadedCamera:
+    """
+    Decoupled background camera capture thread.
+    Prevents webcam sensor read locks from capping the rendering loop,
+    enabling silky-smooth 60+ FPS tracking and spline rendering.
+    """
+
+    def __init__(self, cap: cv2.VideoCapture):
+        self.cap = cap
+        self.ret, self.frame = cap.read()
+        self.running = True
+        self.lock = threading.Lock()
+        self.thread = threading.Thread(target=self._capture_loop, daemon=True)
+        self.thread.start()
+
+    def _capture_loop(self):
+        while self.running:
+            ret, frame = self.cap.read()
+            if ret and frame is not None and frame.size > 0:
+                with self.lock:
+                    self.ret = ret
+                    self.frame = frame
+            else:
+                time.sleep(0.005)
+
+    def read(self):
+        with self.lock:
+            if self.frame is not None:
+                return self.ret, self.frame.copy()
+            return False, None
+
+    def release(self):
+        self.running = False
+        if self.thread.is_alive():
+            self.thread.join(timeout=0.3)
+        self.cap.release()
+
+
+def init_camera(camera_idx: int = 0, width: int = 1280, height: int = 720, target_fps: float = 60.0):
     """
     Open webcam using AVFoundation on macOS or standard backend on Linux/Windows.
-    Scans indices 0, 1, 2, 3 if requested index is unavailable.
+    Requests 60 FPS and wraps in ThreadedCamera for low-latency throughput.
     """
     backend = cv2.CAP_AVFOUNDATION if sys.platform == "darwin" else cv2.CAP_ANY
     candidate_indices = [camera_idx] + [i for i in range(4) if i != camera_idx]
 
     for idx in candidate_indices:
         try:
-            cap = cv2.VideoCapture(idx, backend)
-            if cap.isOpened():
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+            raw_cap = cv2.VideoCapture(idx, backend)
+            if raw_cap.isOpened():
+                raw_cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                raw_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                raw_cap.set(cv2.CAP_PROP_FPS, target_fps)
 
                 # Read warm-up frames to ensure sensor & exposure are ready
                 valid = False
                 frame = None
                 for _ in range(5):
-                    ret, test_frame = cap.read()
+                    ret, test_frame = raw_cap.read()
                     if ret and test_frame is not None and test_frame.size > 0:
                         valid = True
                         frame = test_frame
                         break
-                    time.sleep(0.05)
+                    time.sleep(0.04)
 
                 if valid:
-                    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    actual_w = int(raw_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    actual_h = int(raw_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                     if actual_w <= 0 or actual_h <= 0 and frame is not None:
                         actual_h, actual_w, _ = frame.shape
-                    print(f"Camera successfully initialized on index {idx} ({actual_w}x{actual_h})!")
-                    return cap, idx, actual_w, actual_h
+                    
+                    threaded_cap = ThreadedCamera(raw_cap)
+                    print(f"Camera successfully initialized on index {idx} ({actual_w}x{actual_h} @ requested {target_fps:.0f} FPS)!")
+                    return threaded_cap, idx, actual_w, actual_h
                 else:
-                    cap.release()
+                    raw_cap.release()
         except Exception:
             pass
 
@@ -106,8 +149,8 @@ def main():
     consecutive_cam_failures = 0
 
     if not args.synthetic and not args.demo:
-        print(f"Searching for camera (requested index: {args.camera})...")
-        cap, actual_idx, actual_w, actual_h = init_camera(args.camera, args.width, args.height)
+        print(f"Searching for camera (requested index: {args.camera}, target {args.fps:.0f} FPS)...")
+        cap, actual_idx, actual_w, actual_h = init_camera(args.camera, args.width, args.height, target_fps=args.fps)
         if cap is not None:
             camera_online = True
             canvas.width = actual_w
@@ -191,8 +234,9 @@ def main():
 
             # Handle drawing stroke lifecycle if not interacting with top toolbar
             if not toolbar_clicked and cursor_xy is not None:
+                force_eraser = getattr(tracker, "is_eraser_gesture", False)
                 if state == PinchState.PINCH_START:
-                    canvas.start_stroke(cursor_xy)
+                    canvas.start_stroke(cursor_xy, force_eraser=force_eraser)
                 elif state == PinchState.PINCHING:
                     canvas.continue_stroke(cursor_xy)
                 elif state == PinchState.PINCH_STOP:
@@ -243,7 +287,7 @@ def main():
                 print("Retrying camera connection...")
                 if cap is not None:
                     cap.release()
-                cap, actual_idx, actual_w, actual_h = init_camera(args.camera, args.width, args.height)
+                cap, actual_idx, actual_w, actual_h = init_camera(args.camera, args.width, args.height, target_fps=args.fps)
                 if cap is not None:
                     camera_online = True
                     consecutive_cam_failures = 0
@@ -260,7 +304,9 @@ def main():
             elif key in [ord('z'), ord('Z')]:
                 canvas.undo()
             elif key in [ord('e'), ord('E')]:
-                canvas.set_color("eraser")
+                canvas.toggle_eraser()
+                status = "ERASER ACTIVE (Press 'E' or '1'-'7' to switch back)" if canvas.is_eraser else f"PEN ACTIVE (Color: {canvas.current_color_name.upper()})"
+                print(f"[TOOL] {status}")
             elif key in [ord('t'), ord('T')]:
                 canvas.toggle_mode()
             elif key in [ord('k'), ord('K')]:

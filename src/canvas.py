@@ -81,6 +81,14 @@ class AirCanvas:
             self.current_color_name = name
             self.current_color = PALETTE[name]
 
+    def toggle_eraser(self):
+        """Toggle between Eraser and active color."""
+        if self.is_eraser:
+            self.is_eraser = False
+            self.current_color = PALETTE.get(self.current_color_name, PALETTE["cyan"])
+        else:
+            self.is_eraser = True
+
     def set_brush_size(self, size: int):
         """Set brush size clamped to [2, 40]."""
         self.brush_size = int(np.clip(size, 2, 40))
@@ -91,13 +99,14 @@ class AirCanvas:
         idx = (modes.index(self.mode) + 1) % len(modes)
         self.mode = modes[idx]
 
-    def start_stroke(self, pt: Tuple[float, float]):
+    def start_stroke(self, pt: Tuple[float, float], force_eraser: bool = False):
         """Initiate a new stroke at given point (x, y)."""
         ipt = (int(round(pt[0])), int(round(pt[1])))
+        erase_mode = self.is_eraser or force_eraser
         stroke = Stroke(
             color=self.current_color,
-            thickness=self.brush_size * (3 if self.is_eraser else 1),
-            is_eraser=self.is_eraser
+            thickness=self.brush_size * (3 if erase_mode else 1),
+            is_eraser=erase_mode
         )
         stroke.add_point(ipt)
         self.current_stroke = stroke
@@ -157,9 +166,9 @@ class AirCanvas:
         """Draw an anti-aliased smoothed line segment with circular joint caps."""
         radius = max(1, thickness // 2)
         if is_eraser:
-            # Eraser clears pixels by zeroing out alpha and color
-            cv2.line(self.canvas_layer, p1, p2, (0, 0, 0, 0), thickness, lineType=cv2.LINE_AA)
-            cv2.circle(self.canvas_layer, p2, radius, (0, 0, 0, 0), -1, lineType=cv2.LINE_AA)
+            # Eraser clears pixels by zeroing out alpha and color completely
+            cv2.line(self.canvas_layer, p1, p2, (0, 0, 0, 0), thickness, lineType=cv2.LINE_8)
+            cv2.circle(self.canvas_layer, p2, radius, (0, 0, 0, 0), -1, lineType=cv2.LINE_8)
         else:
             rgba = (color[0], color[1], color[2], 255)
             cv2.line(self.canvas_layer, p1, p2, rgba, thickness, lineType=cv2.LINE_AA)

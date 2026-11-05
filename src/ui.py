@@ -259,20 +259,26 @@ class UIOverlay:
         cv2.addWeighted(overlay, 0.78, frame, 0.22, 0, frame)
 
         # State text
+        is_erasing = canvas.is_eraser or getattr(tracker, "is_eraser_gesture", False)
         if tracker.is_pinched:
-            state_text = "PINCHING (DRAW)"
-            state_color = (50, 255, 100)
+            if is_erasing:
+                state_text = "PINCHING (ERASER)"
+                state_color = (0, 140, 255)
+            else:
+                state_text = "PINCHING (DRAW)"
+                state_color = (50, 255, 100)
         else:
             state_text = "OPEN (HOVER)"
             state_color = (200, 200, 200)
 
-        cv2.putText(frame, state_text, (meter_x + 12, meter_y + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.52, state_color, 2)
+        cv2.putText(frame, state_text, (meter_x + 12, meter_y + 22), cv2.FONT_HERSHEY_SIMPLEX, 0.48, state_color, 2)
 
         # 3D Metric readouts
         dist_cm = tracker.current_dist_3d_m * 100.0
         ratio_pct = tracker.current_ratio * 100.0
-        cv2.putText(frame, f"3D Gap: {dist_cm:.1f} cm ({ratio_pct:.0f}%)", (meter_x + 12, meter_y + 42),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.42, (200, 200, 200), 1)
+        label_pinch = "Middle (Eraser)" if getattr(tracker, "is_eraser_gesture", False) else "Index (Draw)"
+        cv2.putText(frame, f"3D Gap: {dist_cm:.1f} cm | {label_pinch}", (meter_x + 12, meter_y + 42),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 200, 200), 1)
 
         # Progress bar
         bar_x = meter_x + 12
@@ -282,7 +288,7 @@ class UIOverlay:
 
         cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (50, 50, 55), -1)
         fill_w = int(bar_w * tracker.pinch_progress)
-        bar_color = (50, 255, 100) if tracker.is_pinched else (255, 180, 50)
+        bar_color = state_color if tracker.is_pinched else (255, 180, 50)
         if fill_w > 0:
             cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h), bar_color, -1)
 
@@ -299,25 +305,27 @@ class UIOverlay:
             return
 
         cx, cy = int(round(cursor_xy[0])), int(round(cursor_xy[1]))
-        brush_color = canvas.current_color if not canvas.is_eraser else (200, 200, 200)
-        brush_r = canvas.brush_size
+        is_erasing = canvas.is_eraser or getattr(tracker, "is_eraser_gesture", False)
+        brush_color = (0, 140, 255) if is_erasing else canvas.current_color
+        brush_r = canvas.brush_size * 2 if is_erasing else canvas.brush_size
 
         if tracker.is_pinched:
-            # Drawing active: compact solid dot + halo
+            # Drawing / Erasing active
             cv2.circle(frame, (cx, cy), brush_r + 4, (255, 255, 255), 1, lineType=cv2.LINE_AA)
-            cv2.circle(frame, (cx, cy), brush_r, brush_color, -1, lineType=cv2.LINE_AA)
-            if canvas.is_eraser:
-                cv2.circle(frame, (cx, cy), brush_r * 2, (100, 100, 255), 1, lineType=cv2.LINE_AA)
+            cv2.circle(frame, (cx, cy), brush_r, brush_color, -1 if not is_erasing else 2, lineType=cv2.LINE_AA)
+            if is_erasing:
+                cv2.line(frame, (cx - brush_r // 2, cy), (cx + brush_r // 2, cy), (0, 140, 255), 2)
         else:
             # Hover state: targeting reticle
             cv2.circle(frame, (cx, cy), 12, (255, 255, 255), 1, lineType=cv2.LINE_AA)
             cv2.circle(frame, (cx, cy), 4, brush_color, -1, lineType=cv2.LINE_AA)
 
-            # Draw connector between thumb and index tips
+            # Draw connector line
             if pose is not None:
                 p_thumb = (int(pose.thumb_tip_2d[0]), int(pose.thumb_tip_2d[1]))
-                p_index = (int(pose.index_tip_2d[0]), int(pose.index_tip_2d[1]))
-                cv2.line(frame, p_thumb, p_index, (150, 200, 255), 1, lineType=cv2.LINE_AA)
+                target_tip = getattr(pose, "middle_tip_2d", pose.index_tip_2d) if is_erasing else pose.index_tip_2d
+                p_target = (int(target_tip[0]), int(target_tip[1]))
+                cv2.line(frame, p_thumb, p_target, (150, 200, 255), 1, lineType=cv2.LINE_AA)
 
     def draw_toolbar(self, frame: np.ndarray, canvas: AirCanvas):
         """Render virtual interactive touchless toolbar."""

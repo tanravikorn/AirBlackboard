@@ -58,6 +58,7 @@ class PinchTracker:
         self.exit_ratio = pinch_exit_ratio
 
         self.is_pinched = False
+        self.is_eraser_gesture = False
         self.last_state = PinchState.HOVER
 
         # Dedicated drawing cursor filter
@@ -72,6 +73,7 @@ class PinchTracker:
     def reset(self):
         """Reset pinch tracker and cursor filter."""
         self.is_pinched = False
+        self.is_eraser_gesture = False
         self.last_state = PinchState.HOVER
         self.cursor_filter.reset()
         self.last_cursor_pos = None
@@ -79,6 +81,7 @@ class PinchTracker:
     def update(self, pose: Optional[Hand3DPose], timestamp: Optional[float] = None) -> Tuple[PinchState, Optional[np.ndarray], float]:
         """
         Process hand pose and determine pinch state and smoothed cursor coordinates.
+        Supports both Thumb+Index pinch (Draw) and Thumb+Middle pinch (Instant Eraser).
 
         Parameters
         ----------
@@ -100,23 +103,39 @@ class PinchTracker:
         if pose is None:
             prev_pinched = self.is_pinched
             self.is_pinched = False
+            self.is_eraser_gesture = False
             self.cursor_filter.reset()
             self.last_cursor_pos = None
             state = PinchState.PINCH_STOP if prev_pinched else PinchState.HOVER
             self.last_state = state
             return state, None, 0.0
 
-        # Compute True 3D Euclidean Metric Distance (meters)
-        # Invariant to 3D rotation, pitch, yaw, roll, and perspective foreshortening!
+        # Compute True 3D Euclidean Metric Distances (meters)
         thumb_3d = pose.thumb_tip_3d
         index_3d = pose.index_tip_3d
-        dist_3d = float(np.linalg.norm(thumb_3d - index_3d))
-        self.current_dist_3d_m = dist_3d
+        middle_3d = getattr(pose, "middle_tip_3d", index_3d)
 
-        # Anatomically Normalized Pinch Ratio
-        # Invariant to hand size variation (children vs adults)
+        dist_index_3d = float(np.linalg.norm(thumb_3d - index_3d))
+        dist_middle_3d = float(np.linalg.norm(thumb_3d - middle_3d))
+
+        # Check if Thumb is pinching with Middle finger (Eraser Gesture) vs Index finger (Draw)
         ref_scale = pose.ref_scale
-        ratio = dist_3d / ref_scale
+        ratio_index = dist_index_3d / ref_scale
+        ratio_middle = dist_middle_3d / ref_scale
+
+        # Decide which finger is closer to the thumb
+        if dist_middle_3d < dist_index_3d and (dist_middle_3d <= self.enter_dist * 1.1 or ratio_middle <= self.enter_ratio * 1.1):
+            dist_3d = dist_middle_3d
+            ratio = ratio_middle
+            contact_2d = 0.5 * (pose.thumb_tip_2d + getattr(pose, "middle_tip_2d", pose.index_tip_2d))
+            is_eraser = True
+        else:
+            dist_3d = dist_index_3d
+            ratio = ratio_index
+            contact_2d = 0.5 * (pose.thumb_tip_2d + pose.index_tip_2d)
+            is_eraser = False
+
+        self.current_dist_3d_m = dist_3d
         self.current_ratio = ratio
 
         # Pinch Progress: 1.0 when fully pinched, 0.0 when >= exit threshold
@@ -125,12 +144,10 @@ class PinchTracker:
 
         # Schmitt Trigger / Hysteresis State Machine
         if not self.is_pinched:
-            # Check condition to trigger pinch
-            # Trigger if BOTH metric distance and ratio satisfy enter threshold
             if dist_3d <= self.enter_dist or ratio <= self.enter_ratio:
-                # Extra check: make sure ratio isn't wildly inconsistent
                 if ratio <= (self.enter_ratio * 1.15) and dist_3d <= (self.enter_dist * 1.2):
                     self.is_pinched = True
+                    self.is_eraser_gesture = is_eraser
                     state = PinchState.PINCH_START
                 else:
                     state = PinchState.HOVER
@@ -140,18 +157,15 @@ class PinchTracker:
             # We are currently pinching. Stay pinched until fingers clearly separate.
             if dist_3d >= self.exit_dist and ratio >= self.exit_ratio:
                 self.is_pinched = False
+                self.is_eraser_gesture = False
                 state = PinchState.PINCH_STOP
             else:
                 state = PinchState.PINCHING
 
         self.last_state = state
 
-        # Compute Screen Contact Point:
-        # Midpoint between thumb tip and index tip in screen pixel space
-        raw_contact_2d = 0.5 * (pose.thumb_tip_2d + pose.index_tip_2d)
-
         # Smooth cursor position using OneEuroFilter
-        smoothed_cursor = self.cursor_filter.filter(raw_contact_2d, timestamp=timestamp)
+        smoothed_cursor = self.cursor_filter.filter(contact_2d, timestamp=timestamp)
         self.last_cursor_pos = smoothed_cursor
 
         return state, smoothed_cursor, self.pinch_progress

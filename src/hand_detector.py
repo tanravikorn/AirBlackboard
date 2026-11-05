@@ -88,6 +88,7 @@ class Hand3DPose:
         self.wrist_3d = world_landmarks_3d[WRIST]
         self.thumb_tip_3d = world_landmarks_3d[THUMB_TIP]
         self.index_tip_3d = world_landmarks_3d[INDEX_TIP]
+        self.middle_tip_3d = world_landmarks_3d[MIDDLE_TIP]
         self.middle_mcp_3d = world_landmarks_3d[MIDDLE_MCP]
         self.index_mcp_3d = world_landmarks_3d[INDEX_MCP]
         self.pinky_mcp_3d = world_landmarks_3d[PINKY_MCP]
@@ -95,6 +96,7 @@ class Hand3DPose:
         # 2D Screen points
         self.thumb_tip_2d = landmarks_pixel[THUMB_TIP]
         self.index_tip_2d = landmarks_pixel[INDEX_TIP]
+        self.middle_tip_2d = landmarks_pixel[MIDDLE_TIP]
 
         # Anatomical scales in 3D metric space
         self.palm_length = float(np.linalg.norm(self.middle_mcp_3d - self.wrist_3d))
