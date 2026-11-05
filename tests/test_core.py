@@ -1,5 +1,5 @@
 """
-test_core.py - Comprehensive Unit Tests for dodoodle 3D Hand Tracking & Drawing Studio.
+test_core.py - Comprehensive Unit Tests for AirBlackboard 3D Hand Tracking & Drawing Studio.
 """
 
 import math

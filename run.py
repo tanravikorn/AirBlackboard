@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-run.py - Main entry point for the dodoodle 3D Hand Air-Drawing application.
+run.py - Main entry point for the AirBlackboard 3D Hand Air-Drawing application.
 """
 
 import os
@@ -21,7 +21,7 @@ from src.ui import UIOverlay
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="dodoodle - 3D Hand Air Canvas")
+    parser = argparse.ArgumentParser(description="AirBlackboard - 3D Hand Air Canvas")
     parser.add_argument("--camera", type=int, default=0, help="Webcam device index (default: 0)")
     parser.add_argument("--width", type=int, default=1280, help="Camera width (default: 1280)")
     parser.add_argument("--height", type=int, default=720, help="Camera height (default: 720)")
@@ -122,7 +122,7 @@ def main():
     args = parse_args()
 
     print("=" * 60)
-    print(" dodoodle - 3D Hand Tracking & Air-Drawing Studio")
+    print(" AirBlackboard - 3D Hand Tracking & Air-Drawing Studio")
     print("=" * 60)
     print(f"Loading Hand Landmarker model: {args.model}")
 
@@ -166,7 +166,7 @@ def main():
             print("You can press 'R' inside the app window at any time to reconnect.")
             print("!" * 60 + "\n")
 
-    window_name = "dodoodle - 3D Hand Air Canvas"
+    window_name = "AirBlackboard - 3D Hand Air Canvas"
     if not (args.synthetic or args.demo) or args.save_frames == 0:
         cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
 

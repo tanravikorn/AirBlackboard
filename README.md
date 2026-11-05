@@ -1,7 +1,8 @@
-# dodoodle 🎨
+# AirBlackboard 🎨
+> **Project Comp Vision 2110433**
 > **3D Kinematic Hand-Tracking & Touchless Air-Canvas with MediaPipe & Adaptive Smoothing**
 
-`dodoodle` is an air-drawing application powered by **MediaPipe Tasks** that tracks hand movements in full **3D metric space**, calculates logical hand orientation (Pitch, Yaw, Roll, Palm Normal), and enables smooth drawing on screen using a thumb-and-index pinch gesture.
+`AirBlackboard` is an air-drawing application powered by **MediaPipe Tasks** that tracks hand movements in full **3D metric space**, calculates logical hand orientation (Pitch, Yaw, Roll, Palm Normal), and enables smooth drawing on screen using a thumb-and-index pinch gesture.
 
 ---
 
@@ -9,7 +10,7 @@
 
 ### 1. True 3D Metric Pinch Tracking (Rotation & Distance Invariant)
 * **The Problem with 2D Tracking:** In naive 2D approaches, pinch detection relies on screen pixel distance. When the user tilts their hand, rotates it sideways (edge-on), or changes distance from the webcam, perspective foreshortening causes false pinch triggers or broken lines.
-* **The 3D Solution:** `dodoodle` uses MediaPipe's `world_landmarks`—a 3D coordinate space in **real-world meters** centered at the hand's root:
+* **The 3D Solution:** `AirBlackboard` uses MediaPipe's `world_landmarks`—a 3D coordinate space in **real-world meters** centered at the hand's root:
   $$\mathcal{D}_{3D} = \sqrt{(X_{\text{thumb}} - X_{\text{index}})^2 + (Y_{\text{thumb}} - Y_{\text{index}})^2 + (Z_{\text{thumb}} - Z_{\text{index}})^2}$$
 * **Anatomical Scale Normalization:** To guarantee seamless performance across hand sizes (children vs. adults), the 3D distance is normalized by the hand's anatomical scale (wrist-to-middle-MCP distance $S_{\text{palm}}$):
   $$r_{\text{pinch}} = \frac{\mathcal{D}_{3D}}{S_{\text{palm}}}$$
@@ -26,7 +27,7 @@ The model interprets the hand as a logical 3D articulated rigid/kinematic body:
 
 ### 3. Jitter-Free, Low-Latency Smoothing (1€ Filter)
 Raw webcam landmark coordinates often suffer from high-frequency micro-jitter, while standard moving average filters introduce noticeable lag when drawing fast strokes.
-`dodoodle` integrates the **One-Euro Filter** (Casiez et al., CHI 2012):
+`AirBlackboard` integrates the **One-Euro Filter** (Casiez et al., CHI 2012):
 * **At Low Velocity (Stationary / Fine Detail):** Decreases cutoff frequency $f_c \to f_{c,\min}$ to eliminate tremor and jitter.
 * **At High Velocity (Quick Swipes / Fast Strokes):** Dynamically increases cutoff frequency $f_c = f_{c,\min} + \beta |\dot{x}|$ to reduce filter lag to near zero.
 
@@ -49,7 +50,7 @@ Once pinching begins, lines stay connected without accidental breaks until the f
 ## 📁 Project Architecture
 
 ```
-dodoodle/
+AirBlackboard/
 ├── README.md               # Documentation & mathematical formulation
 ├── requirements.txt        # Python package dependencies
 ├── run.py                  # Main executable application

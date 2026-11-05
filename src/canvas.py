@@ -252,7 +252,7 @@ class AirCanvas:
     def save(self, filepath: Optional[str] = None) -> str:
         """Save the artwork to a PNG file."""
         if filepath is None:
-            filepath = f"dodoodle_art_{int(time.time())}.png"
+            filepath = f"airblackboard_art_{int(time.time())}.png"
 
         # Save transparent PNG or composited image
         base_color = (25, 25, 30) if self.dark_canvas else (255, 255, 255)
