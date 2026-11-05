@@ -258,7 +258,7 @@ def main():
                 if pose is not None:
                     ui.draw_skeleton(display_frame, pose)
                     ui.draw_3d_orientation_widget(display_frame, pose)
-                    ui.draw_pinch_meter(display_frame, tracker, pose)
+                    ui.draw_pinch_meter(display_frame, tracker, pose, canvas)
 
                 ui.draw_cursor(display_frame, cursor_xy, tracker, canvas, pose)
                 ui.draw_help_dialog(display_frame)
@@ -339,6 +339,10 @@ def main():
 
     except KeyboardInterrupt:
         print("\nInterrupted by user.")
+    except Exception as e:
+        import traceback
+        print(f"\n[ERROR] An unexpected error occurred: {e}")
+        traceback.print_exc()
     finally:
         if cap is not None:
             cap.release()

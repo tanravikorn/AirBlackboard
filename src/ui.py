@@ -245,7 +245,13 @@ class UIOverlay:
         # Facing description
         cv2.putText(frame, f"{pose.facing_desc}", (x1 + 10, y2 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (100, 240, 255), 1)
 
-    def draw_pinch_meter(self, frame: np.ndarray, tracker: PinchTracker, pose: Hand3DPose):
+    def draw_pinch_meter(
+        self,
+        frame: np.ndarray,
+        tracker: PinchTracker,
+        pose: Hand3DPose,
+        canvas: Optional[AirCanvas] = None
+    ):
         """Draw dynamic 3D pinch proximity meter."""
         meter_x = self.width - 240
         meter_y = 70
@@ -259,7 +265,7 @@ class UIOverlay:
         cv2.addWeighted(overlay, 0.78, frame, 0.22, 0, frame)
 
         # State text
-        is_erasing = canvas.is_eraser or getattr(tracker, "is_eraser_gesture", False)
+        is_erasing = (canvas.is_eraser if canvas is not None else False) or getattr(tracker, "is_eraser_gesture", False)
         if tracker.is_pinched:
             if is_erasing:
                 state_text = "PINCHING (ERASER)"
